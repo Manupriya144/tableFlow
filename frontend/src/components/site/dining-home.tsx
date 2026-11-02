@@ -491,6 +491,11 @@ export function DiningHome() {
             <Link href="/reserve">Reservations</Link>
             <Link href="/orders">Track order</Link>
           </nav>
+          {customerSession && (
+            <button className="site-sign-out" type="button" onClick={signOutCustomer}>
+              Sign out
+            </button>
+          )}
           <Link className="nav-reserve" href="/reserve">Reserve a table</Link>
           <button
             className="mobile-menu-button"
