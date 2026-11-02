@@ -46,8 +46,9 @@ type QueueEntry = {
   customer_name: string;
   guest_count: number;
   arrived_at: string;
-  status: "WAITING" | "CALLED";
+  status: "WAITING" | "CALLED" | "SEATED" | "CANCELLED";
 };
+type WalkInResult = { entry: QueueEntry; table_number: string | null };
 type Reservation = {
   id: number;
   table_number: string;
@@ -822,8 +823,9 @@ export function HostDesk() {
     if (!walkInName.trim() || !session) return;
     setIsSubmitting(true);
     setError(null);
+    setNotice(null);
     try {
-      const entry = await apiRequest<QueueEntry>("/queue", {
+      const result = await apiRequest<WalkInResult>("/queue/walk-ins", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.accessToken}` },
         body: JSON.stringify({
@@ -832,14 +834,16 @@ export function HostDesk() {
           guest_count: walkInParty,
         }),
       });
-      setQueue((current) => [...current, entry]);
       setWalkInName("");
       setWalkInParty(2);
       setShowWalkIn(false);
-      setNotice(
-        `${entry.customer_name} joined the queue as ${entry.queue_number}.`,
-      );
-      setActiveNav("Queue");
+      await loadDesk(session.accessToken);
+      if (result.table_number) {
+        setNotice(`${result.entry.customer_name} is seated at ${result.table_number}.`);
+      } else {
+        setActiveNav("Queue");
+        setNotice(`${result.entry.customer_name} joined the queue as ${result.entry.queue_number}.`);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -987,7 +991,7 @@ const callParty = async (entry: QueueEntry) => {
 
   const chooseView = (view: HostView) => {
     setActiveNav(view);
-    if (view === "Walk-ins") setShowWalkIn(true);
+    setShowWalkIn(false);
   };
 
   if (!session || accessDenied)
@@ -1089,9 +1093,18 @@ const callParty = async (entry: QueueEntry) => {
         <div className="host-task-heading">
           <p>Front door</p>
           <h2>Walk-ins</h2>
-          <span>Add a party, then assign it from the live queue.</span>
+          <span>
+            Seat parties at a currently available table that fits. When no
+            suitable table is free, add them to the waiting queue.
+          </span>
         </div>
-        {queueList}
+        <button
+          className="add-walkin"
+          type="button"
+          onClick={() => setShowWalkIn(true)}
+        >
+          <Plus /> Add walk-in
+        </button>
       </section>
     );
   if (activeNav === "Queue")
@@ -1208,7 +1221,7 @@ const callParty = async (entry: QueueEntry) => {
               />
             </label>
             <button disabled={isSubmitting} type="submit">
-              Add to queue
+              Seat or add to queue
             </button>
             <button
               className="walkin-form__cancel"

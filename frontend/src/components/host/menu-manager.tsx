@@ -67,9 +67,8 @@ export function MenuManager({ token }: { token: string }) {
     </form>
     <h3>Existing dishes</h3>
     <div className="tf-menu-items">{items.map(item => <div className="tf-menu-item" key={item.id}><div><strong>{item.name}</strong><small>{item.category} · ${(item.price_cents/100).toFixed(2)}</small></div><div><button onClick={() => void patch(item.id, { available: !item.available })}>{item.available ? "Hide" : "Show"}</button><button onClick={() => { const name = window.prompt("Dish name", item.name); if (name !== null) void patch(item.id, { name }); }}>Rename</button><button onClick={() => { const v = window.prompt("New price ($)", (item.price_cents / 100).toFixed(2)); if (v && Number(v) > 0) void patch(item.id, { price_cents: Math.round(Number(v) * 100) }); }}>Change price</button><button onClick={() => void remove(item.id)}>Delete</button></div></div>)}</div>
-    <h3>QR ordering</h3><p>One common QR code opens the beautiful full menu with all available dishes. Customers select their order type and available table when ordering.</p>
+    <h3>QR ordering</h3>
     {/* QR is generated on our backend, not by a third-party QR website. */}
     <div className="tf-qr"><img key={qrUrl} src={qrUrl} width={210} height={210} alt="Customer ordering QR code" /><a href={qrUrl} download={`tableflow-menu-qr.svg`} target="_blank" rel="noreferrer">Open / save QR image ↗</a></div>
-    <p className="tf-qr-hint">For phone scanning, set PUBLIC_CUSTOMER_URL to the customer website address accessible from your phone (localhost works only on the same computer).</p>
   </section>;
 }

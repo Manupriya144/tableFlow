@@ -48,6 +48,82 @@ def add_to_queue(
     return entry
 
 
+def add_walk_in(
+    db: Session,
+    *,
+    restaurant_id: int,
+    customer_name: str,
+    customer_phone: str | None,
+    guest_count: int,
+    assigned_by: User,
+) -> tuple[QueueEntry, RestaurantTable | None]:
+    """Seat a walk-in at a currently available fitting table, or queue them."""
+    # Serialize queue numbering while locking candidate tables in a consistent
+    # order. A concurrent reservation or seating action cannot claim our table.
+    restaurant = db.scalar(
+        select(Restaurant).where(Restaurant.id == restaurant_id).with_for_update()
+    )
+    if restaurant is None:
+        raise LookupError("Restaurant not found")
+
+    now = restaurant_now(restaurant.timezone)
+    table = None
+    skipped_reserved_table_ids: set[int] = set()
+    while True:
+        candidate = db.scalar(
+            select(RestaurantTable)
+            .where(
+                RestaurantTable.restaurant_id == restaurant_id,
+                RestaurantTable.capacity >= guest_count,
+                RestaurantTable.status == TableStatus.AVAILABLE,
+                ~RestaurantTable.id.in_(skipped_reserved_table_ids),
+            )
+            .order_by(RestaurantTable.capacity, RestaurantTable.number)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        if candidate is None:
+            break
+        reserved_table_ids = find_reserved_table_ids(
+            db,
+            reservation_date=now.date(),
+            slot_start=now.time().replace(tzinfo=None),
+            table_ids=[candidate.id],
+        )
+        if candidate.id not in reserved_table_ids:
+            table = candidate
+            break
+        skipped_reserved_table_ids.add(candidate.id)
+
+    count = db.scalar(
+        select(func.count(QueueEntry.id)).where(QueueEntry.restaurant_id == restaurant_id)
+    )
+    entry = QueueEntry(
+        restaurant_id=restaurant_id,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        guest_count=guest_count,
+        queue_number=f"Q-{int(count or 0) + 1:03d}",
+        status=QueueStatus.SEATED if table else QueueStatus.WAITING,
+    )
+    db.add(entry)
+    db.flush()
+
+    if table:
+        table.status = TableStatus.OCCUPIED
+        table.unavailable_until = None
+        db.add(
+            SeatingRecord(
+                table_id=table.id,
+                queue_entry_id=entry.id,
+                assigned_by_id=assigned_by.id,
+            )
+        )
+        db.flush()
+
+    return entry, table
+
+
 def call_queue_entry(db: Session, *, entry_id: int) -> QueueEntry:
     entry = db.scalar(
         select(QueueEntry)

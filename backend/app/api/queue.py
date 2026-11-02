@@ -6,10 +6,11 @@ from app.core.dependencies import require_roles
 from app.db.session import get_db
 from app.models import QueueEntry, QueueStatus, Role, User
 from app.realtime.hub import event_hub
-from app.schemas.queue import QueueCreate, QueuePublic, SeatQueueEntry
+from app.schemas.queue import QueueCreate, QueuePublic, SeatQueueEntry, WalkInResult
 from app.services.queue import (
     QueueWorkflowError,
     add_to_queue,
+    add_walk_in,
     call_queue_entry,
     seat_queue_entry,
 )
@@ -32,6 +33,40 @@ async def join_queue(payload: QueueCreate, db: Session = Depends(get_db)) -> Que
         {"type": "queue.created", "queue_entry_id": entry.id},
     )
     return entry
+
+
+@router.post(
+    "/walk-ins",
+    response_model=WalkInResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_walk_in(
+    payload: QueueCreate,
+    user: User = Depends(require_roles(*host_roles)),
+    db: Session = Depends(get_db),
+) -> WalkInResult:
+    try:
+        entry, table = add_walk_in(db, assigned_by=user, **payload.model_dump())
+        db.commit()
+        db.refresh(entry)
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    await event_hub.broadcast(
+        entry.restaurant_id,
+        {"type": "queue.created", "queue_entry_id": entry.id},
+    )
+    if table:
+        await event_hub.broadcast(
+            entry.restaurant_id,
+            {
+                "type": "queue.seated",
+                "queue_entry_id": entry.id,
+                "table_id": table.id,
+            },
+        )
+    return WalkInResult(entry=entry, table_number=table.number if table else None)
 
 
 @router.get("", response_model=list[QueuePublic])

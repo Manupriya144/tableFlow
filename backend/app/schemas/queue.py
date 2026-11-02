@@ -25,5 +25,10 @@ class QueuePublic(BaseModel):
     arrived_at: datetime
 
 
+class WalkInResult(BaseModel):
+    entry: QueuePublic
+    table_number: str | None
+
+
 class SeatQueueEntry(BaseModel):
     table_id: int = Field(gt=0)
